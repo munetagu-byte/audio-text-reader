@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>テキスト＆音声リーダー</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+:root{
+  --bg:#0d1117;--panel:#161b22;--card:#21262d;--border:#30363d;
+  --accent:#e94560;--accent2:#533483;
+  --text:#e6edf3;--muted:#7d8590;--green:#3fb950;
+}
+html,body{height:100%;overflow:hidden;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg);color:var(--text);display:flex;flex-direction:column;}
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+/* ── HEADER ── */
+header{
+  background:var(--panel);border-bottom:1px solid var(--border);
+  padding:8px 12px;display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;
+}
+header h1{
+  font-size:.95rem;font-weight:700;white-space:nowrap;
+  background:linear-gradient(135deg,#e94560,#533483);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+select.lesson-sel{
+  flex:1;min-width:0;background:var(--card);border:1px solid var(--border);color:var(--text);
+  padding:6px 8px;border-radius:8px;font-size:.82rem;cursor:pointer;
+}
+.icon-btn{
+  background:var(--card);border:1px solid var(--border);color:var(--text);
+  min-width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:.78rem;
+  display:flex;align-items:center;justify-content:center;gap:4px;padding:0 8px;
+  transition:background .15s;white-space:nowrap;flex-shrink:0;
+}
+.icon-btn:hover{background:var(--accent2);}
+.icon-btn.upload-pdf{border-color:#e94560;color:#e94560;}
+.icon-btn.upload-pdf.loaded{border-color:var(--green);color:var(--green);}
+.icon-btn.upload-audio{border-color:#533483;color:#a78bfa;}
+.icon-btn.upload-audio.loaded{border-color:var(--green);color:var(--green);}
+input[type=file]{display:none;}
+
+/* ── MAIN ── */
+.main{display:flex;flex:1;overflow:hidden;}
+
+.pdf-panel{
+  width:50%;border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;background:#0a0a0a;
+}
+@media(max-width:600px){
+  .main{flex-direction:column;}
+  .pdf-panel{width:100%;height:40%;border-right:none;border-bottom:1px solid var(--border);}
+  header{gap:6px;}
+}
+.panel-bar{
+  background:var(--panel);padding:5px 10px;font-size:.72rem;color:var(--muted);
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.page-nav{display:flex;align-items:center;gap:6px;}
+.page-nav button{
+  background:var(--card);border:1px solid var(--border);color:var(--text);
+  padding:2px 8px;border-radius:4px;cursor:pointer;font-size:.72rem;
+}
+#pdf-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:12px;gap:10px;}
+#pdf-scroll canvas{max-width:100%;border-radius:3px;box-shadow:0 4px 16px rgba(0,0,0,.6);}
+
+.text-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+#text-scroll{flex:1;overflow-y:auto;padding:16px 18px;line-height:2;word-break:break-all;}
+
+.placeholder{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;color:var(--muted);gap:10px;text-align:center;padding:20px;
+}
+.placeholder svg{opacity:.2;}
+.placeholder p{font-size:.82rem;line-height:1.8;}
+
+/* ── Text segments ── */
+.seg{display:inline;border-radius:3px;transition:background .25s;cursor:pointer;}
+.seg:hover{background:rgba(83,52,131,.35);}
+.seg.past{background:rgba(233,69,96,.18);}
+.seg.now{
+  background:rgba(233,69,96,.72);padding:1px 2px;
+  animation:pulse 1.1s ease-in-out infinite alternate;
+}
+@keyframes pulse{
+  from{background:rgba(233,69,96,.55);}
+  to{background:rgba(233,69,96,.88);}
+}
+
+/* ── PLAYER ── */
+.player{
+  background:var(--panel);border-top:1px solid var(--border);
+  padding:10px 14px 12px;flex-shrink:0;
+}
+.player-inner{max-width:800px;margin:0 auto;display:flex;flex-direction:column;gap:8px;}
+.progress-row{display:flex;align-items:center;gap:8px;}
+.time{font-size:.72rem;color:var(--muted);white-space:nowrap;min-width:34px;}
+.prog-bar{flex:1;height:5px;background:var(--border);border-radius:4px;cursor:pointer;transition:height .15s;}
+.prog-bar:hover{height:8px;}
+#prog-fill{height:100%;background:linear-gradient(90deg,#e94560,#533483);border-radius:4px;width:0%;transition:width .1s linear;pointer-events:none;}
+.ctrl-row{display:flex;align-items:center;justify-content:center;gap:10px;}
+.cbtn{
+  background:none;border:none;color:var(--text);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:color .15s,transform .1s;padding:4px;border-radius:50%;
+}
+.cbtn:hover{color:var(--accent);transform:scale(1.1);}
+.cbtn.play{background:var(--accent);border-radius:50%;width:44px;height:44px;color:#fff;}
+.cbtn.play:hover{background:#c73652;transform:scale(1.05);}
+.speed-sel{
+  background:var(--card);border:1px solid var(--border);color:var(--text);
+  padding:4px 8px;border-radius:6px;font-size:.78rem;cursor:pointer;
+}
+.vol-row{display:flex;align-items:center;gap:6px;margin-left:auto;}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;
+  width:68px;height:4px;background:var(--border);border-radius:4px;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;
+  border-radius:50%;background:var(--accent);cursor:pointer;
+}
+#toast{
+  position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+  background:#222;color:#fff;padding:7px 16px;border-radius:20px;
+  font-size:.78rem;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;white-space:nowrap;
+}
+#toast.show{opacity:1;}
+.loading-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.55);
+  display:none;align-items:center;justify-content:center;z-index:998;
+}
+.loading-overlay.show{display:flex;}
+.spinner{width:38px;height:38px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+  🔧 設定エリア — GitHubにアップロードしたファイル名を登録してください
+  ファイルは index.html と同じフォルダに置いてください
+============================================================ -->
+<script>
+const LESSONS = [
+  { title: "Lesson 1",  pdf: "lesson1.pdf",  audio: "lesson1.mp3"  },
+  { title: "Lesson 2",  pdf: "lesson2.pdf",  audio: "lesson2.mp3"  },
+  { title: "Lesson 3",  pdf: "lesson3.pdf",  audio: "lesson3.mp3"  },
+  { title: "Lesson 4",  pdf: "lesson4.pdf",  audio: "lesson4.mp3"  },
+  { title: "Lesson 5",  pdf: "lesson5.pdf",  audio: "lesson5.mp3"  },
+  { title: "Lesson 6",  pdf: "lesson6.pdf",  audio: "lesson6.mp3"  },
+  { title: "Lesson 7",  pdf: "lesson7.pdf",  audio: "lesson7.mp3"  },
+  { title: "Lesson 8",  pdf: "lesson8.pdf",  audio: "lesson8.mp3"  },
+  { title: "Lesson 9",  pdf: "lesson9.pdf",  audio: "lesson9.mp3"  },
+  { title: "Lesson 10", pdf: "lesson10.pdf", audio: "lesson10.mp3" },
+  { title: "Lesson 11", pdf: "lesson11.pdf", audio: "lesson11.mp3" },
+  { title: "Lesson 12", pdf: "lesson12.pdf", audio: "lesson12.mp3" },
+  { title: "Lesson 13", pdf: "lesson13.pdf", audio: "lesson13.mp3" },
+  { title: "Lesson 14", pdf: "lesson14.pdf", audio: "lesson14.mp3" },
+  { title: "Lesson 15", pdf: "lesson15.pdf", audio: "lesson15.mp3" },
+  { title: "Lesson 16", pdf: "lesson16.pdf", audio: "lesson16.mp3" },
+  { title: "Lesson 17", pdf: "lesson17.pdf", audio: "lesson17.mp3" },
+  { title: "Lesson 18", pdf: "lesson18.pdf", audio: "lesson18.mp3" },
+  { title: "Lesson 19", pdf: "lesson19.pdf", audio: "lesson19.mp3" },
+  { title: "Lesson 20", pdf: "lesson20.pdf", audio: "lesson20.mp3" },
+  { title: "Lesson 21", pdf: "lesson21.pdf", audio: "lesson21.mp3" },
+  { title: "Lesson 22", pdf: "lesson22.pdf", audio: "lesson22.mp3" },
+  { title: "Lesson 23", pdf: "lesson23.pdf", audio: "lesson23.mp3" },
+  { title: "Lesson 24", pdf: "lesson24.pdf", audio: "lesson24.mp3" },
+  { title: "Lesson 25", pdf: "lesson25.pdf", audio: "lesson25.mp3" },
+  { title: "Lesson 26", pdf: "lesson26.pdf", audio: "lesson26.mp3" },
+  { title: "Lesson 27", pdf: "lesson27.pdf", audio: "lesson27.mp3" },
+  { title: "Lesson 28", pdf: "lesson28.pdf", audio: "lesson28.mp3" },
+  { title: "Lesson 29", pdf: "lesson29.pdf", audio: "lesson29.mp3" },
+  { title: "Lesson 30", pdf: "lesson30.pdf", audio: "lesson30.mp3" },
+  { title: "Lesson 31", pdf: "lesson31.pdf", audio: "lesson31.mp3" },
+  { title: "Lesson 32", pdf: "lesson32.pdf", audio: "lesson32.mp3" },
+];
+</script>
+<!-- ============================================================ -->
+
+<!-- HEADER -->
+<header>
+  <h1>📖 リーダー</h1>
+  <select class="lesson-sel" id="lesson-sel"></select>
+
+  <!-- 手動ファイル選択（GitHub経由で読めない場合のフォールバック） -->
+  <label class="icon-btn upload-pdf" id="lbl-pdf" title="PDFをデバイスから選択" for="inp-pdf">
+    📄 PDF
+  </label>
+  <input type="file" id="inp-pdf" accept=".pdf">
+
+  <label class="icon-btn upload-audio" id="lbl-audio" title="音声をデバイスから選択" for="inp-audio">
+    🎵 音声
+  </label>
+  <input type="file" id="inp-audio" accept=".mp3,.wav,.m4a,.aac,.ogg">
+
+  <button class="icon-btn" id="font-down" title="文字を小さく">A-</button>
+  <button class="icon-btn" id="font-up"   title="文字を大きく">A+</button>
+</header>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="pdf-panel">
+    <div class="panel-bar">
+      <span id="pdf-name">PDF</span>
+      <div class="page-nav">
+        <button id="prev-page">◀</button>
+        <span id="page-info">- / -</span>
+        <button id="next-page">▶</button>
+      </div>
+    </div>
+    <div id="pdf-scroll">
+      <div class="placeholder" id="pdf-ph">
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <p>レッスンを選ぶか<br>📄 PDF ボタンからファイルを選択してください</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="text-panel">
+    <div class="panel-bar">テキスト（音声に合わせてハイライト）</div>
+    <div id="text-scroll" style="font-size:15px">
+      <div class="placeholder" id="text-ph">
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <line x1="17" y1="10" x2="3" y2="10"/>
+          <line x1="21" y1="6"  x2="3" y2="6"/>
+          <line x1="21" y1="14" x2="3" y2="14"/>
+          <line x1="17" y1="18" x2="3" y2="18"/>
+        </svg>
+        <p>PDFを読み込むとテキストが表示されます<br>
+          <small>音声に合わせて自動ハイライト<br>テキストをタップするとその位置から再生します</small>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PLAYER -->
+<div class="player">
+  <div class="player-inner">
+    <div class="progress-row">
+      <span class="time" id="cur-time">0:00</span>
+      <div class="prog-bar" id="prog-bar"><div id="prog-fill"></div></div>
+      <span class="time" id="tot-time">0:00</span>
+    </div>
+    <div class="ctrl-row">
+      <button class="cbtn" id="btn-rew">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="1 4 1 10 7 10"/>
+          <path d="M3.51 15a9 9 0 1 0 .49-3.77"/>
+        </svg>
+      </button>
+      <button class="cbtn play" id="btn-play">
+        <svg id="ico-play"  width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg id="ico-pause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+          <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+        </svg>
+      </button>
+      <button class="cbtn" id="btn-fwd">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-.49-3.77"/>
+        </svg>
+      </button>
+      <select class="speed-sel" id="speed-sel">
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1.0×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2.0×</option>
+      </select>
+      <div class="vol-row">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+        </svg>
+        <input type="range" id="vol" min="0" max="1" step="0.05" value="1">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div class="loading-overlay" id="loading"><div class="spinner"></div></div>
+<audio id="audio"></audio>
+
+<script>
+// ── PDF.js ──
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const audio      = document.getElementById('audio');
+const lessonSel  = document.getElementById('lesson-sel');
+const pdfScroll  = document.getElementById('pdf-scroll');
+const textScroll = document.getElementById('text-scroll');
+const progFill   = document.getElementById('prog-fill');
+
+let pdfDoc     = null;
+let curPage    = 1;
+let totalPages = 0;
+let segments   = [];
+let lastHlIdx  = -1;
+let fontSize   = 15;
+
+// ── Utilities ──
+function toast(msg, dur = 2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), dur);
+}
+function setLoading(on) {
+  document.getElementById('loading').classList.toggle('show', on);
+}
+function fmtTime(s) {
+  if (!s || isNaN(s)) return '0:00';
+  return Math.floor(s/60) + ':' + Math.floor(s%60).toString().padStart(2,'0');
+}
+function setPlayIcon(playing) {
+  document.getElementById('ico-play').style.display  = playing ? 'none'  : 'block';
+  document.getElementById('ico-pause').style.display = playing ? 'block' : 'none';
+}
+
+// ── Lesson selector ──
+LESSONS.forEach((l, i) => {
+  const opt = document.createElement('option');
+  opt.value = i;
+  opt.textContent = l.title;
+  lessonSel.appendChild(opt);
+});
+
+lessonSel.addEventListener('change', () => {
+  const lesson = LESSONS[parseInt(lessonSel.value)];
+  if (!lesson) return;
+  loadFromUrl(lesson);
+});
+
+async function loadFromUrl(lesson) {
+  audio.pause();
+  setPlayIcon(false);
+  resetHighlight();
+
+  // Audio — set src; browser handles streaming
+  audio.src = lesson.audio;
+  audio.load();
+
+  // PDF
+  document.getElementById('pdf-name').textContent = lesson.title;
+  setLoading(true);
+  try {
+    // Use fetch first to get ArrayBuffer — avoids some CORS edge cases
+    const res = await fetch(lesson.pdf);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = await res.arrayBuffer();
+    await renderPdfBuffer(buf);
+    toast('✅ ' + lesson.title + ' 読み込み完了');
+  } catch(e) {
+    console.error('PDF fetch error:', e);
+    setLoading(false);
+    pdfScroll.innerHTML = '';
+    pdfScroll.innerHTML = `
+      <div class="placeholder">
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p>⚠️ PDFの読み込みに失敗しました<br>
+        <small>📄 PDF ボタンからファイルを直接選択してください</small></p>
+      </div>`;
+    textScroll.innerHTML = '<div class="placeholder"><p>📄 PDF ボタンからPDFを選択してください</p></div>';
+  }
+}
+
+// ── Manual file upload (fallback) ──
+document.getElementById('inp-pdf').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('lbl-pdf').textContent = '✅ ' + file.name.slice(0,12);
+  document.getElementById('lbl-pdf').classList.add('loaded');
+  document.getElementById('pdf-name').textContent = file.name;
+  setLoading(true);
+  const buf = await file.arrayBuffer();
+  await renderPdfBuffer(buf);
+  toast('✅ PDF 読み込み完了');
+});
+
+document.getElementById('inp-audio').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('lbl-audio').textContent = '✅ ' + file.name.slice(0,12);
+  document.getElementById('lbl-audio').classList.add('loaded');
+  audio.pause();
+  setPlayIcon(false);
+  resetHighlight();
+  audio.src = URL.createObjectURL(file);
+  audio.load();
+  toast('✅ 音声 読み込み完了');
+});
+
+// ── PDF render from ArrayBuffer ──
+async function renderPdfBuffer(buf) {
+  try {
+    pdfDoc     = await pdfjsLib.getDocument({ data: buf }).promise;
+    totalPages = pdfDoc.numPages;
+    curPage    = 1;
+    await renderPages();
+    await extractText();
+    updatePageInfo();
+  } catch(e) {
+    console.error('PDF render error:', e);
+    toast('⚠️ PDFの表示に失敗しました', 4000);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function renderPages() {
+  pdfScroll.innerHTML = '';
+  for (let i = 1; i <= totalPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const vp   = page.getViewport({ scale: 1.6 });
+    const cv   = document.createElement('canvas');
+    cv.width   = vp.width;
+    cv.height  = vp.height;
+    cv.dataset.page = i;
+    pdfScroll.appendChild(cv);
+    await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+  }
+}
+
+// ── Text extraction ──
+async function extractText() {
+  textScroll.innerHTML = '';
+  segments  = [];
+  lastHlIdx = -1;
+
+  const allLines = [];
+  for (let i = 1; i <= totalPages; i++) {
+    const page    = await pdfDoc.getPage(i);
+    const content = await page.getTextContent();
+
+    // Group by Y position to reconstruct lines
+    const byY = {};
+    content.items.forEach(item => {
+      const str = item.str;
+      if (!str.trim()) return;
+      const y = Math.round(item.transform[5]);
+      if (!byY[y]) byY[y] = [];
+      byY[y].push({ x: item.transform[4], str });
+    });
+
+    Object.keys(byY)
+      .map(Number).sort((a,b) => b - a)
+      .forEach(y => {
+        const line = byY[y].sort((a,b) => a.x - b.x).map(o => o.str).join('').trim();
+        if (line) allLines.push(line);
+      });
+
+    allLines.push(''); // page break
+  }
+
+  const realLines = allLines.filter(l => l.trim());
+  if (realLines.length === 0) {
+    textScroll.innerHTML =
+      '<div class="placeholder"><p>⚠️ テキストを抽出できませんでした<br><small>スキャンPDFの可能性があります</small></p></div>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+
+  allLines.forEach(line => {
+    if (!line) {
+      frag.appendChild(document.createElement('br'));
+      return;
+    }
+    // Split into sentences
+    const parts = line.split(/(?<=[。！？!?.]["」』]?)\s*/u).filter(s => s.trim());
+    const items = parts.length ? parts : [line];
+
+    items.forEach(sent => {
+      sent = sent.trim();
+      if (!sent) return;
+      const span = document.createElement('span');
+      span.className = 'seg';
+      span.textContent = sent + '\u00A0';
+      span.dataset.idx = segments.length;
+      span.addEventListener('click', () => {
+        if (!audio.duration) return;
+        audio.currentTime = (parseInt(span.dataset.idx) / segments.length) * audio.duration;
+        if (audio.paused) audio.play();
+      });
+      frag.appendChild(span);
+      segments.push(span);
+    });
+  });
+
+  textScroll.appendChild(frag);
+}
+
+// ── Highlight ──
+function updateHighlight(ratio) {
+  if (!segments.length) return;
+  const idx = Math.min(Math.floor(ratio * segments.length), segments.length - 1);
+  if (idx === lastHlIdx) return;
+  lastHlIdx = idx;
+  segments.forEach((s, i) => {
+    s.classList.remove('now','past');
+    if (i < idx)   s.classList.add('past');
+    if (i === idx) s.classList.add('now');
+  });
+  segments[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function resetHighlight() {
+  lastHlIdx = -1;
+  segments.forEach(s => s.classList.remove('now','past'));
+}
+
+// ── Audio ──
+document.getElementById('btn-play').addEventListener('click', () => {
+  if (!audio.src || audio.src === window.location.href) {
+    toast('レッスンを選択するか、音声ファイルを選んでください'); return;
+  }
+  audio.paused ? audio.play() : audio.pause();
+});
+audio.addEventListener('play',  () => setPlayIcon(true));
+audio.addEventListener('pause', () => setPlayIcon(false));
+audio.addEventListener('ended', () => setPlayIcon(false));
+audio.addEventListener('loadedmetadata', () => {
+  document.getElementById('tot-time').textContent = fmtTime(audio.duration);
+});
+audio.addEventListener('timeupdate', () => {
+  const cur = audio.currentTime, dur = audio.duration || 1;
+  progFill.style.width = (cur/dur*100) + '%';
+  document.getElementById('cur-time').textContent = fmtTime(cur);
+  updateHighlight(cur/dur);
+});
+document.getElementById('prog-bar').addEventListener('click', e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  audio.currentTime = ((e.clientX - r.left) / r.width) * (audio.duration || 0);
+});
+document.getElementById('btn-rew').onclick = () => { audio.currentTime = Math.max(0, audio.currentTime-10); };
+document.getElementById('btn-fwd').onclick = () => { audio.currentTime = Math.min(audio.duration||0, audio.currentTime+10); };
+document.getElementById('speed-sel').addEventListener('change', e => { audio.playbackRate = parseFloat(e.target.value); });
+document.getElementById('vol').addEventListener('input', e => { audio.volume = parseFloat(e.target.value); });
+
+// ── PDF page nav ──
+pdfScroll.addEventListener('scroll', () => {
+  const mid = pdfScroll.scrollTop + pdfScroll.clientHeight/2;
+  let p = 1;
+  pdfScroll.querySelectorAll('canvas').forEach(c => { if (c.offsetTop <= mid) p = parseInt(c.dataset.page); });
+  curPage = p; updatePageInfo();
+});
+function updatePageInfo() {
+  document.getElementById('page-info').textContent = totalPages ? `${curPage} / ${totalPages}` : '- / -';
+}
+document.getElementById('prev-page').onclick = () => { if (curPage > 1) scrollToPage(curPage-1); };
+document.getElementById('next-page').onclick = () => { if (curPage < totalPages) scrollToPage(curPage+1); };
+function scrollToPage(n) {
+  const c = pdfScroll.querySelector(`canvas[data-page="${n}"]`);
+  if (c) { c.scrollIntoView({ behavior: 'smooth' }); curPage = n; updatePageInfo(); }
+}
+
+// ── Font size ──
+document.getElementById('font-up').onclick   = () => { fontSize = Math.min(fontSize+2, 28); textScroll.style.fontSize = fontSize+'px'; };
+document.getElementById('font-down').onclick = () => { fontSize = Math.max(fontSize-2, 10); textScroll.style.fontSize = fontSize+'px'; };
+
+// ── Keyboard ──
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space')      { e.preventDefault(); document.getElementById('btn-play').click(); }
+  if (e.code === 'ArrowLeft')  audio.currentTime = Math.max(0, audio.currentTime-10);
+  if (e.code === 'ArrowRight') audio.currentTime = Math.min(audio.duration||0, audio.currentTime+10);
+});
+</script>
+</body>
+</html>
